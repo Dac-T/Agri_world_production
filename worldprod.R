@@ -7,6 +7,8 @@ library(factoextra)
 library(GGally)
 library(cluster)
 
+## blablabla
+
 ### 1. Data importation
 data = read.table("/Users/orlando/Desktop/DENS/Double_diplôme/Cours_S1/S1_D3/stats/projet_stats/Yield.csv",
                   header = TRUE, 
@@ -307,8 +309,6 @@ somecult = by_country[, !names(by_country) %in% columns_to_exclude]
 # somecultnona represents all the countries where Maize, Potatoes, Rice and Sorghum are cultivated
 somecultnona = na.omit(somecult)
 
-by_country_nona = na.omit(by_country)
-
 
 ## b) Excluding countries where some years are missing
 
@@ -424,18 +424,17 @@ ggplot(summary_stats, aes(x = Year, y = mean_yield, color = Item, group = Item))
 
 # a) PCA on crops
 
-crop_data = by_country_nona[, c("Soybeans", "Cassava", "Sweet.potatoes", "Plantains.and.others", 
+crop_data = by_country[, c("Soybeans", "Cassava", "Sweet.potatoes", "Plantains.and.others", 
                             "Yams", "Maize", "Wheat", "Rice..paddy", "Sorghum", "Potatoes")]
 
-
 cropca=PCA(crop_data,scale.unit=T)
-cropcaround = round(cropca$eig,2)
 
 # Kaiser criterion 
-
 cat("Nb de valeurs propres supérieures à 1 : ",  length(which(cropcaround[,1] > 1)))
 
 #elbow + empirical mean criteria
+cropcaround = round(cropca$eig,2)
+
 fviz_eig(cropca, addlabels = TRUE, ylim = c(0, 50)) +
   geom_hline(yintercept = mean(cropcaround[,2]), linetype = "dashed", color = "red") +
   theme_minimal()
@@ -445,12 +444,25 @@ p1=fviz_pca_var(cropca, axes = 1:2)
 p2=fviz_pca_var(cropca, axes = 3:4)
 grid.arrange(p1,p2,nrow=1)
 
+#for individuals
+# ind_1=fviz_pca_ind(cropca, axes = 1:2,col.ind="cos2")
+# ind_2=fviz_pca_ind(cropca, axes = 3:4,col.ind="cos2")
+# grid.arrange(ind_1,ind_2,nrow=1)
 
 
 
-# ACP avec FactoMineR 
-yield_acp = PCA(data[, c("rain", "temp", "yield", "pest")])
-summary(yield_acp)
+# b) PCA on everything
+
+# Nouvelle colonne contenant toutes les informations catégorielles
+data$Indiv = paste(data$Area, data$Year, data$Item, data$Cluster, sep = "_")
+
+data$Area = as.numeric((data$Area))
+data$Item = as.numeric((data$Item))
+data$Cluster = as.numeric(as.character(data$Cluster))
+
+everypca = PCA(data, scale.unit = T)
+
+indivpca = PCA(data[, c("rain", "temp", "yield", "pest")], scale.unit = T)
 
 
 

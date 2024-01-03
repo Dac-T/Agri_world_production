@@ -7,6 +7,8 @@ library(factoextra)
 library(GGally)
 library(cluster)
 
+## blablabla
+
 ### 1. Data importation
 data = read.table("/Users/orlando/Desktop/DENS/Double_diplôme/Cours_S1/S1_D3/stats/projet_stats/Yield.csv",
                   header = TRUE, 
