@@ -7,8 +7,6 @@ library(factoextra)
 library(GGally)
 library(cluster)
 
-## blablabla
-
 ### 1. Data importation
 data = read.table("/Users/orlando/Desktop/DENS/Double_diplôme/Cours_S1/S1_D3/stats/projet_stats/Yield.csv",
                   header = TRUE, 
@@ -99,6 +97,7 @@ numeric_data = scale(data[, c("temp", "rain")])
 
 numeric_bycountry = scale(by_country[, c("avg_temp", "rain")])
 
+set.seed(123)
 rdmset = 40
 
 # Function to perform k-means and return inertia
@@ -306,7 +305,7 @@ columns_to_exclude = c("Soybeans", "Cassava", "Sweet.potatoes", "Plantains.and.o
 # Dataframe by_country with only the dominant crops
 somecult = by_country[, !names(by_country) %in% columns_to_exclude]
 
-# somecultnona represents all the countries where Maize, Potatoes, Rice and Sorghum are cultivated
+# somecultnona represents all the countries where Maize, Wheat, Potatoes, Rice and Sorghum are cultivated
 somecultnona = na.omit(somecult)
 
 
@@ -348,6 +347,8 @@ summary(fullscnona)
 print(paste("Nombre de pays :", length(unique(data$Area))))
 print(paste("Nombre d'années : ", length(unique(data$Year))))
 
+cat("Nombre de pays dans fullscnona :", length(unique(fullscnona$Area)))
+
 sort(table(data$Area), decreasing = TRUE)
 sort(table(data$Year), decreasing = TRUE)
 sort(table(data$Item), decreasing = TRUE)
@@ -365,6 +366,7 @@ with(data, table(Cluster, Item))
 pairwiseplot = ggpairs(data, columns = c("rain", "temp", "yield", "pest"), 
                        mapping = aes(color = Cluster))
 
+pairwiseplot
 
 ## c) Boxplots
 
@@ -430,18 +432,18 @@ crop_data = by_country[, c("Soybeans", "Cassava", "Sweet.potatoes", "Plantains.a
 cropca=PCA(crop_data,scale.unit=T)
 
 # Kaiser criterion 
+cropcaround = round(cropca$eig,2)
 cat("Nb de valeurs propres supérieures à 1 : ",  length(which(cropcaround[,1] > 1)))
 
 #elbow + empirical mean criteria
-cropcaround = round(cropca$eig,2)
 
 fviz_eig(cropca, addlabels = TRUE, ylim = c(0, 50)) +
   geom_hline(yintercept = mean(cropcaround[,2]), linetype = "dashed", color = "red") +
   theme_minimal()
 
 # Visualization
-p1=fviz_pca_var(cropca, axes = 1:2)
-p2=fviz_pca_var(cropca, axes = 3:4)
+p1=fviz_pca_var(cropca, geom = c("text", "arrow"), col.var = "cos2", axes = 1:2)
+p2=fviz_pca_var(cropca, geom = c("text", "arrow"), col.var = "cos2", axes = 3:4)
 grid.arrange(p1,p2,nrow=1)
 
 #for individuals
@@ -450,27 +452,55 @@ grid.arrange(p1,p2,nrow=1)
 # grid.arrange(ind_1,ind_2,nrow=1)
 
 
+# b) PCA on some crops
 
-# b) PCA on everything
+reduced_crop_data = somecult[, c("Maize", "Wheat", "Rice..paddy", "Sorghum", "Potatoes")]
 
-# Nouvelle colonne contenant toutes les informations catégorielles
-data$Indiv = paste(data$Area, data$Year, data$Item, data$Cluster, sep = "_")
+redcropca=PCA(reduced_crop_data,scale.unit=T)
 
-data$Area = as.numeric((data$Area))
-data$Item = as.numeric((data$Item))
+# Kaiser criterion 
+cat("Nb de valeurs propres supérieures à 1 : ",  length(which(round(redcropca$eig,2)[,1] > 1)))
+
+#elbow + empirical mean criteria
+
+fviz_eig(redcropca, addlabels = TRUE, ylim = c(0, 60)) +
+  geom_hline(yintercept = mean(round(redcropca$eig,2)), linetype = "dashed", color = "red") +
+  theme_minimal()
+
+# Visualization
+red_p1 = fviz_pca_var(redcropca, axes = 1:2, geom = c("text", "arrow"), col.var = "cos2")
+red_p1
+
+#red_ind_1= fviz_pca_ind(redcropca, axes = 1:2,col.ind="cos2")
+
+
+## c) PCA on everything
+
+data$Year = as.numeric(as.character(data$Year))
 data$Cluster = as.numeric(as.character(data$Cluster))
 
-everypca = PCA(data, scale.unit = T)
+quantindex = which(colnames(data) %in% c("Year", "Cluster"))
+qualindex = which(colnames(data) %in% c("Area", "Item"))
+everypca = PCA(data, scale.unit = T, ncp = 10, quanti.sup = quantindex, 
+               quali.sup = qualindex, graph = F)
 
-indivpca = PCA(data[, c("rain", "temp", "yield", "pest")], scale.unit = T)
+# Kaiser criterion 
+cat("Nb de valeurs propres supérieures à 1 : ",  length(which(round(everypca$eig,2)[,1] > 1)))
 
+#elbow + empirical mean criteria
 
+fviz_eig(everypca, addlabels = TRUE, ylim = c(0, 60)) +
+  geom_hline(yintercept = mean(round(everypca$eig,2)), linetype = "dashed", color = "red") +
+  theme_minimal()
 
+# Visualization
+var = get_pca_var(everypca)
+ev_p1 = fviz_pca_var(everypca, geom = c("text", "arrow"), col.var = "cos2", axes = 1:2, repel = T)
+ev_p1
 
-# yield_item = PCA(by_country[, -c("Area", "Year", "rain", "pest", "avg_temp")])
-columns_to_include <- setdiff(names(by_country), c("Area", "Year", "rain", "pest", "avg_temp"))
-yield_item <- PCA(na.omit(by_country[, columns_to_include]))
-summary(yield_item)
+ev_ind_1= fviz_pca_ind(everypca, axes = 1:2, col.ind = data$Cluster)
+ev_ind_1
+
 
 
 
