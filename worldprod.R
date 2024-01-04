@@ -6,6 +6,8 @@ library(FactoMineR) #for PCA
 library(factoextra)
 library(GGally)
 library(cluster)
+library(MASS)
+library(broom)
 
 ### 1. Data importation
 data = read.table("/Users/orlando/Desktop/DENS/Double_diplôme/Cours_S1/S1_D3/stats/projet_stats/Yield.csv",
@@ -52,14 +54,14 @@ by_country = merge(by_country, real_rain, by = c("Area", "Year"), all.x = TRUE)
 
 by_country = by_country %>%
   mutate(rain = ifelse(is.na(r_rain), rain, ifelse(rain != r_rain, r_rain, rain))) %>%
-  select(-r_rain)
+  dplyr::select(-r_rain)
 
 
 data = merge(data, by_country, by = c("Area", "Year"), all.x = TRUE)
 data = data[, -c(9:20)]
 data = data %>%
   mutate(rain.x = ifelse(is.na(rain.y), rain.x, ifelse(rain.x != rain.y, rain.y, rain.x))) %>%
-  select(-rain.y)
+  dplyr::select(-rain.y)
 
 names(data)[names(data) == "rain.x"] = "rain"
 names(data)[names(data) == "pest.x"] = "pest"
@@ -376,11 +378,11 @@ pairwiseplot
 
 # Boxplot for yield(crop)
 mean_yield = by_country %>%
-  select(-c(Year, Area)) %>%
+  dplyr::select(-c(Year, Area)) %>%
   summarise_all(mean, na.rm = TRUE)
 
 mean_yield = mean_yield %>%
-  select(-c(Area, rain, pest, avg_temp, Cluster))
+  dplyr::select(-c(Area, rain, pest, avg_temp, Cluster))
 
 # Gather the data for box plotting
 gathered_data <- mean_yield %>%
@@ -510,11 +512,89 @@ ev_ind_1
 
 ##############################
 
-# 4. Statistiques inférentielles
+### 4. Inferences
 
 # Convert 'Year' and 'Item' columns to factors using as.factor
-by_country$Year = as.factor(by_country$Year)
 data$Year = as.factor(data$Year)
+data$Cluster = as.factor(data$Cluster)
+
+## a)	Au sein de pays ayant les mêmes conditions climatiques, la quantité de pesticide utilisée 
+#     influence-t-elle le rendement des cultures, pour une culture donnée ?
+
+# Loop for every model 
+# After trial and error, the predictor variable pest should be put under a log
+
+crop_variables = c("Maize", "Wheat", "Rice..paddy", "Sorghum", "Potatoes")
+
+models = list()
+
+for (crop in crop_variables) {
+  models[[crop]] <- list(models = list(), r_squared = numeric(0))
+  
+  for (N in 1:6) {
+    regmod = lm(paste(crop, "~ log(pest)"), data = fullscnona[fullscnona$Cluster == N, ])
+    
+    # Kolmogorov-Smirnov test
+    ks_stat = ks.test(residuals(regmod), "pnorm")$statistic
+    
+    # Summary information
+    summary_info = summary(regmod)
+      
+    # Store models with the best and worst Multiple R-squared
+
+    models[[crop]]$models = c(models[[crop]]$models, list(list(N = N, ks = ks_stat, model = regmod, summary = summary_info)))        
+
+    }
+}
+
+# models[["X"]]$models[[N]]$model to get the reg_lin of the crop X and the cluster N 
+# models[["X"]]$models[[N]]$summary for the summary, and summary$r.squared to get the R squared
+# plot(models[["X"]]$models[[N]]$model) for a diagnostic graph
+
+
+# Create an empty data frame to store results
+result_model_df = data.frame(crop = character(), N = numeric(), r_squared = numeric(), p_value = numeric())
+
+# Loop through crop variables and clusters
+for (crop in crop_variables) {
+  for (N in 1:6) {
+    # Extract R-squared value
+    r_squared_value = models[[crop]]$models[[N]]$summary$r.squared
+    p_val = glance(models[[crop]]$models[[N]]$model)$p.value[[1]]
+    
+    # Append the result to the data frame
+    result_model_df = rbind(result_model_df, data.frame(crop = crop, N = N, 
+                                                        r_squared = r_squared_value,
+                                                        p_value = p_val))
+  }
+}
+
+# Find the top 5 R-squared values
+top_5_models <- result_model_df[result_model_df$p_value < 0.05, ]
+top_5_models <- top_5_models[order(-top_5_models$r_squared), ][1:5, ]
+
+# Count the number of pairs with R-squared < 0.25
+count_low_r_squared_or_high_p_value <- sum(result_model_df$r_squared < 0.25 | result_model_df$p_value > 0.05)
+
+# Print results
+print("Top 5 models:")
+print(top_5_models)
+print(paste("Number of pairs with R-squared < 0.25 or p-value > 0.05:", count_low_r_squared_or_high_p_value, "over", nrow(result_model_df)))
+
+result_model_df$crop = as.factor(result_model_df$crop)
+result_model_df$N = as.factor(result_model_df$N)
+
+
+# Great graph 
+slr_graph = ggplot(result_model_df, aes(x = factor(crop), y = r_squared, color = N)) +
+  geom_point(size = 4) +
+  labs(title = "Variation of R-squared for simple regression crop ~ log(pest)",
+       x = "Crops",
+       y = "R-squared") +
+  theme_minimal()
+
+slr_graph
+##############################
 
 # Modèle Ancova
 ancova_model = lm(yield ~ rain + temp + pest + Year, data = data)
