@@ -328,6 +328,8 @@ nona_selected_countries = names(nona_country_counts[nona_country_counts == 23])
 # by_country for countries that have all the dominant crops for 23 years of data
 fullscnona = somecultnona[somecultnona$Area %in% nona_selected_countries, ]
 
+fullscdata = fullyeardata[!fullyeardata$Item %in% columns_to_exclude, ]
+
 
 
 ##############################
@@ -339,10 +341,12 @@ fullscnona = somecultnona[somecultnona$Area %in% nona_selected_countries, ]
 str(data)
 str(by_country)
 str(fullscnona)
+str(fullscdata)
 
 summary(data)
 summary(by_country)
 summary(fullscnona)
+summary(fullscdata)
 
 print(paste("Nombre de pays :", length(unique(data$Area))))
 print(paste("Nombre d'années : ", length(unique(data$Year))))
@@ -429,7 +433,7 @@ ggplot(summary_stats, aes(x = Year, y = mean_yield, color = Item, group = Item))
 crop_data = by_country[, c("Soybeans", "Cassava", "Sweet.potatoes", "Plantains.and.others", 
                             "Yams", "Maize", "Wheat", "Rice..paddy", "Sorghum", "Potatoes")]
 
-cropca=PCA(crop_data,scale.unit=T)
+cropca=PCA(crop_data,scale.unit=T, graph = F)
 
 # Kaiser criterion 
 cropcaround = round(cropca$eig,2)
@@ -456,7 +460,7 @@ grid.arrange(p1,p2,nrow=1)
 
 reduced_crop_data = somecult[, c("Maize", "Wheat", "Rice..paddy", "Sorghum", "Potatoes")]
 
-redcropca=PCA(reduced_crop_data,scale.unit=T)
+redcropca=PCA(reduced_crop_data,scale.unit=T, graph = F)
 
 # Kaiser criterion 
 cat("Nb de valeurs propres supérieures à 1 : ",  length(which(round(redcropca$eig,2)[,1] > 1)))
@@ -533,9 +537,9 @@ summary(logreg_model)
 par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
 plot(logreg_model)
 
-# Classification ascendante hiérarchique (CAH) avec 'FactoMineR'
-cah_result = HCPC(yield_acp, nb.clust = 3)
-print(cah_result)
+# # Classification ascendante hiérarchique (CAH) avec 'FactoMineR'
+# cah_result = HCPC(yield_acp, nb.clust = 3)
+# print(cah_result)
 
 
 
