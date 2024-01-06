@@ -8,6 +8,8 @@ library(GGally)
 library(cluster)
 library(MASS)
 library(broom)
+library(nortest) #for Anderson-Darling, allows to compute normality when above 5000 observations
+
 
 ### 1. Data importation
 data = read.table("/Users/orlando/Desktop/DENS/Double_diplôme/Cours_S1/S1_D3/stats/projet_stats/Yield.csv",
@@ -39,6 +41,7 @@ names(real_rain) = c("Area", sprintf("X%d", 1990:2013))
 unique_areas = unique(data$Area)
 real_rain = real_rain[real_rain$Area %in% unique_areas, ]
 
+
 # Reshape the dataframe using pivot_longer
 real_rain <- real_rain %>%
   pivot_longer(cols = starts_with("X"), 
@@ -65,6 +68,7 @@ data = data %>%
 
 names(data)[names(data) == "rain.x"] = "rain"
 names(data)[names(data) == "pest.x"] = "pest"
+
 
 # Checking that there are various rain values at least for one country
 unique_areas_by_country = unique(by_country$Area)
@@ -316,6 +320,9 @@ somecultnona = na.omit(somecult)
 # Extract the countries with less than 23 observations
 country_counts = table(by_country$Area)
 selected_countries = names(country_counts[country_counts == 23])
+excluded_countries = names(country_counts[country_counts != 23])
+
+
 
 # Dataframes with countries that have 23 years of data
 fullyeardata = data[data$Area %in% selected_countries, ]
@@ -330,9 +337,10 @@ nona_selected_countries = names(nona_country_counts[nona_country_counts == 23])
 # by_country for countries that have all the dominant crops for 23 years of data
 fullscnona = somecultnona[somecultnona$Area %in% nona_selected_countries, ]
 
-fullscdata = fullyeardata[!fullyeardata$Item %in% columns_to_exclude, ]
+fullscdata = fullyeardata[!fullyeardata$Item %in% c("Soybeans", "Cassava", "Sweet potatoes", "Plantains and others", "Yams"), ]
 
-
+fullscdata$Item = factor(fullscdata$Item, 
+                         levels = c("Maize", "Potatoes", "Rice, paddy", "Sorghum", "Wheat"))
 
 ##############################
 
@@ -369,10 +377,16 @@ with(data, table(Cluster, Item))
 #by_country %>% group_by(Area) %>% summarise(Mean = mean(Maize), Sd = sd(Maize))
 
 ## b) Plot allowing to observe distribution, correlations and clustering
-pairwiseplot = ggpairs(data, columns = c("rain", "temp", "yield", "pest"), 
+
+data$Year = as.numeric(as.character(data$Year))
+pairwiseplot = ggpairs(data, columns = c("Year", "rain", "temp", "pest", "yield"), 
                        mapping = aes(color = Cluster))
 
 pairwiseplot
+
+data$Year = as.factor(data$Year)
+
+
 
 ## c) Boxplots
 
@@ -427,6 +441,7 @@ ggplot(summary_stats, aes(x = Year, y = mean_yield, color = Item, group = Item))
 
 
 ##############################
+
 
 ### 5. PCA
 
@@ -521,28 +536,35 @@ data$Cluster = as.factor(data$Cluster)
 ## a)	Au sein de pays ayant les mêmes conditions climatiques, la quantité de pesticide utilisée 
 #     influence-t-elle le rendement des cultures, pour une culture donnée ?
 
+# on fullscnona
+
 # Loop for every model 
-# After trial and error, the predictor variable pest should be put under a log
+# After trial and error, the predictor variable pest and
+# the dependent variable crop should be put under a log
 
 crop_variables = c("Maize", "Wheat", "Rice..paddy", "Sorghum", "Potatoes")
 
 models = list()
 
 for (crop in crop_variables) {
-  models[[crop]] <- list(models = list(), r_squared = numeric(0))
+  models[[crop]] <- list(models = list())
   
   for (N in 1:6) {
-    regmod = lm(paste(crop, "~ log(pest)"), data = fullscnona[fullscnona$Cluster == N, ])
+    regmod = lm(paste("log(",crop, ") ~ log(pest)"), data = fullscnona[fullscnona$Cluster == N, ])
     
-    # Kolmogorov-Smirnov test
-    ks_stat = ks.test(residuals(regmod), "pnorm")$statistic
+    # Anderson-Darling test
+    ad_stat = ad.test(residuals(regmod))$p.value # p-value < 0.05 : the sample does not come from a normal distribution
+    
+    # Shapiro test : 
+    shapiro = shapiro.test(residuals(regmod))$p.value
     
     # Summary information
     summary_info = summary(regmod)
       
     # Store models with the best and worst Multiple R-squared
 
-    models[[crop]]$models = c(models[[crop]]$models, list(list(N = N, ks = ks_stat, model = regmod, summary = summary_info)))        
+    models[[crop]]$models = c(models[[crop]]$models, list(list(N = N, ad = ad_stat, shap = shapiro,
+                                                               model = regmod, summary = summary_info)))        
 
     }
 }
@@ -586,70 +608,142 @@ result_model_df$N = as.factor(result_model_df$N)
 
 
 # Great graph 
-slr_graph = ggplot(result_model_df, aes(x = factor(crop), y = r_squared, color = N)) +
+slr_graph_r2 = ggplot(result_model_df, aes(x = factor(crop), y = r_squared, color = N)) +
   geom_point(size = 4) +
-  labs(title = "Variation of R-squared for simple regression crop ~ log(pest)",
+  labs(title = "Variation of R-squared for simple regression log(crop) ~ log(pest)",
        x = "Crops",
        y = "R-squared") +
   theme_minimal()
 
-slr_graph
-##############################
+slr_graph_r2
 
-# Modèle Ancova
-ancova_model = lm(yield ~ rain + temp + pest + Year, data = data)
-summary(ancova_model)
+
+# Diagnostic graph associated to the best value
+par(mfrow = c(2,2))
+plot(models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$model)
+models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$ad
+models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$shap
+
+
+
+################
+
+## b) Comment expliquer les variations de rendement selon les variables disponibles ?
+# On fullscdata - 
+
+#### i. Multiple linear regression
+
+mlr = lm(log(yield) ~ (rain) + log(temp) + log(pest), data = fullscdata)
+ad_mlr = ad.test(residuals(mlr))
+
+cat("Test de Anderson-Darling MLR :", ad_mlr$p.value)
 
 par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
-plot(ancova_model)
+plot(mlr)
 
-# Régression linéaire multiple
-regression_model = lm(yield ~ rain + temp + pest, data = data)
-summary(regression_model)
+summary(mlr)
 
-par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
-plot(regression_model)
-
-# Régression linéaire multiple
-logreg_model = lm(log(yield) ~ rain + temp + pest, data = data)
-summary(logreg_model)
-
-par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
-plot(logreg_model)
-
-# # Classification ascendante hiérarchique (CAH) avec 'FactoMineR'
-# cah_result = HCPC(yield_acp, nb.clust = 3)
-# print(cah_result)
+mlr_select = step(lm(log(yield)~1, data = fullscdata), scope = ~rain + log(temp) + log(pest),
+                  direction = "both")
+summary(mlr_select)
 
 
+#### ii. General linear regression with year, Item, Cluster and pest
+
+# MLR model
+anc0 = lm(log(yield) ~ 1, data = fullscdata)
+
+formula = log(yield) ~ Year*Item*Cluster*log(pest)
+anc = lm(formula, data = fullscdata)
+
+summary(anc)
+par(mfrow = c(2,2)) 
+plot(anc)
+cat("Test de Anderson-Darling ANC:", ad.test(residuals(anc))$p.value)
+#anova(anc0, anc)
+#car::Anova(anc)
+
+#Going for manual simplification (loop takes to much computational time)
+nf1 = update(formula, ~ . - Year:Item:Cluster:log(pest))
+anc1 = lm(nf1, data = fullscdata)
+#anova(anc, anc1)
+#car::Anova(anc1)
+
+nf2 = update(nf1, ~ . - Year:Cluster:log(pest))
+anc2 = lm(nf2, data = fullscdata)
+#anova(anc1, anc2)
+#car::Anova(anc2)
+
+nf3 = update(nf2, ~ . - Year:Item:log(pest))
+anc3 = lm(nf3, data = fullscdata)
+#anova(anc2, anc3)
+#car::Anova(anc3)
+
+nf4 = update(nf3, ~ . - Year:Item:Cluster)
+anc4 = lm(nf4, data = fullscdata)
+#anova(anc3, anc4)
+#car::Anova(anc4)
+
+nf5 = update(nf4, ~ . - Year:Cluster)
+anc5 = lm(nf5, data = fullscdata)
+#anova(anc4, anc5)
+#car::Anova(anc5)
+
+# Everything is significant for nf6
+nf6 = update(nf5, ~ . - Year:Item)
+anc6 = lm(nf6, data = fullscdata)
+anova(anc5, anc6)
+car::Anova(anc6)
+
+summary(anc6)
+
+par(mfrow = c(2,2)) 
+plot(anc6)
+
+cat("Test de Anderson-Darling ANC 6:", ad.test(residuals(anc6))$p.value)
 
 
-# factor_columns = sapply(bats, is.factor)
-# numeric_columns = !factor_columns
+# Trial without year (7) + removing the 3-interaction (8)
+
+fwithoutyear = log(yield) ~ Item*Cluster*log(pest)
+anc7 = lm(fwithoutyear, data = fullscdata)
+#summary(anc7)
+#car::Anova(anc7)
+ 
+nf8 = update(fwithoutyear, ~ . - Item:Cluster:log(pest))
+anc8 = lm(nf8, data = fullscdata)
+
+summary(anc8)
+car::Anova(anc8)
+par(mfrow = c(2,2))
+plot(anc8)
+
+cat("Test de Anderson-Darling ANC 8:", ad.test(residuals(anc8))$p.value)
+
+
+#### iii. ANCOVA 2 factors
+
+
+# # Initialize the full model
+# full_model_formula <- log(yield) ~ Year * Item * Cluster * log(pest)
+# full_model <- lm(full_model_formula, data = fullscdata)
+# full_anova <- car::Anova(full_model)
 # 
-
+# # Set the significance threshold
+# significance_threshold <- 0.05
 # 
-# a = head(bats, 5)
-# a %>%
-#   kable() %>%
-#   kable_styling(position = "left", font_size = 20)
+# # Loop until no interactions or variables have p-values above the threshold
+# while (any(full_anova$Pr(>F) > significance_threshold)) {
+#   # Identify the variable or interaction with the highest p-value
+#   max_p_value_index <- which.max(full_anova$Pr(>F))
+#   max_p_value_variable <- rownames(full_anova)[max_p_value_index]
+#   
+#   # Remove the variable or interaction with the highest p-value
+#   full_model_formula <- update(full_model_formula, . ~ . - eval(parse(text = max_p_value_variable)))
+#   full_model <- lm(full_model_formula, data = fullscdata)
+#   full_anova <- car::Anova(full_model)
+# }
 # 
-# str(bats) # a été privilégié à summary(bats)
-# 
-# reg1 = lm(BRW ~ BOW, data = bats_phyto)
-# 
-# # graphes de diagnostic
-# par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
-# plot(reg1)
-# 
-# reg2 = lm(log(BRW) ~ log(BOW), data = bats_phyto)
-# 
-# # graphes de diagnostic
-# par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
-# plot(reg2)
-# 
-# summary(reg2)
-# 
-# #AIC
-# reg0 = lm(BRW ~ 1, data = bats_phyto)
-# step(reg0, scope = ~ AUD + MOB + HIP, direction = "both")
+# # Display the final model and ANOVA table
+# summary(full_model)
+# full_anova
