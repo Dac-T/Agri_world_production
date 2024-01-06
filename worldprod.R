@@ -9,6 +9,7 @@ library(cluster)
 library(MASS)
 library(broom)
 library(nortest) #for Anderson-Darling, allows to compute normality when above 5000 observations
+library(emmeans)
 
 
 ### 1. Data importation
@@ -721,9 +722,6 @@ plot(anc8)
 cat("Test de Anderson-Darling ANC 8:", ad.test(residuals(anc8))$p.value)
 
 
-#### iii. ANCOVA 2 factors
-
-
 # # Initialize the full model
 # full_model_formula <- log(yield) ~ Year * Item * Cluster * log(pest)
 # full_model <- lm(full_model_formula, data = fullscdata)
@@ -747,3 +745,107 @@ cat("Test de Anderson-Darling ANC 8:", ad.test(residuals(anc8))$p.value)
 # # Display the final model and ANOVA table
 # summary(full_model)
 # full_anova
+
+
+
+#### iii. ANCOVA 2 factors
+
+# New df with 3 crops compatible with parallel regression slopes
+
+full3cdata = fullyeardata[fullyeardata$Item %in% c("Maize", "Potatoes", "Sorghum"), ]
+
+full3cdata$Item = factor(full3cdata$Item, 
+                         levels = c("Maize", "Potatoes", "Sorghum"))
+
+full3cdata$log_yield = log(full3cdata$yield)
+
+# Regression slope
+
+scatter_plot = ggplot(full3cdata, aes(x = log(pest), y = log_yield, color = Item, linetype = Item)) +
+  geom_point(aes(color = Item), size = 0.01) +
+  theme_minimal() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, mapping = aes(color = Item), linetype = 1, size = 1)
+
+scatter_plot
+
+# Test interactions
+ancov = lm(log_yield ~ log(pest) + Item + Cluster + Item*Cluster, data = full3cdata)
+car::Anova(ancov)
+# Some interactions are significant, there is no homogeneity in regression slopes
+# but we will ignore this - just remembering this hypothesis isn't respected
+
+
+# Residuals are not normal and variances are not homogenous...
+ad.test(augment(ancov)$.resid)
+car::leveneTest(`.resid` ~ Item*Cluster, data = (augment(ancov)))
+
+# but a graph says it's okay
+par(mfrow = c(2,2))
+plot(ancov)
+
+
+
+# Pairwise comparison test
+
+# Looking for the Items effect
+# Even with Bonferroni correction (p must be < 8e-3), everything is statistically significant
+full3cdata %>%
+  group_by(Cluster) %>%
+  rstatix::anova_test(log_yield ~ log(pest) + Item)
+
+pwc_item <- full3cdata %>% 
+  group_by(Cluster) %>%
+  rstatix::emmeans_test(
+    log_yield ~ Item, covariate = pest,
+    p.adjust.method = "bonferroni")
+
+pwc_item
+emmeans(ancov, pairwise ~ Item, adjust = "bonferroni")
+
+
+# Looking for the cluster's effect
+# Even with Bonferroni correction (p must be < 8e-3), everything is statistically significant
+full3cdata %>%
+  group_by(Item) %>%
+  rstatix::anova_test(log_yield ~ log(pest) + Cluster)
+
+pwc_clust <- full3cdata %>% 
+  group_by(Item) %>%
+  rstatix::emmeans_test(
+    log_yield ~ Cluster, covariate = pest,
+    p.adjust.method = "bonferroni")
+
+print(pwc_clust, n = 45)
+
+emmeans(ancov, pairwise ~ Cluster, adjust = "bonferroni")
+
+
+# Plot
+  
+pwc_item <- pwc_item %>% rstatix::add_xy_position(x = "Cluster", fun = "mean_se", step.increase = 0.05)
+
+lp_item = ggpubr::ggline(
+  rstatix::get_emmeans(pwc_item), x = "Cluster", y = "emmean", 
+  color = "Item", palette = "jco") +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high, color = Item), 
+    width = 0.1) +
+  ggpubr::stat_pvalue_manual(
+    pwc_item, hide.ns = F, tip.length = 0,
+    bracket.size = 0, bracket.nudge.y = - 1.4, 
+    label = "{substr(group1, 1, 1)} vs. {substr(group2, 1, 1)} : {p.adj.signif}", label.size = 2.5)
+
+pwc_clust = pwc_clust %>% add_xy_position(x = "Cluster", fun = "min", step.increase = 0.3)
+pwc_clust_filtered = pwc_clust %>% dplyr::filter(p.adj.signif == "ns")
+lp_clust = ggpubr::ggline(
+  rstatix::get_emmeans(pwc_item), x = "Cluster", y = "emmean", 
+  color = "Item", palette = "jco") +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high, color = Item), 
+    width = 0.1) + 
+  stat_pvalue_manual(
+    pwc_clust_filtered, hide.ns = FALSE, tip.length = 0.02,
+    step.group.by = "Item", color = "Item", bracket.nudge.y = 4)
+
+lp_item
+lp_clust
