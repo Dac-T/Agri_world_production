@@ -10,6 +10,7 @@ library(MASS)
 library(broom)
 library(nortest) #for Anderson-Darling, allows to compute normality when above 5000 observations
 library(emmeans)
+library(jmv) #for MANCOVA
 
 
 ### 1. Data importation
@@ -625,7 +626,7 @@ plot(models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$model)
 models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$ad
 models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$shap
 
-
+cat("AIC SLR :", extractAIC(models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$model))
 
 ################
 
@@ -648,6 +649,7 @@ mlr_select = step(lm(log(yield)~1, data = fullscdata), scope = ~rain + log(temp)
                   direction = "both")
 summary(mlr_select)
 
+cat("AIC MLR. :", extractAIC(mlr))
 
 #### ii. General linear regression with year, Item, Cluster and pest
 
@@ -663,32 +665,38 @@ plot(anc)
 cat("Test de Anderson-Darling ANC:", ad.test(residuals(anc))$p.value)
 #anova(anc0, anc)
 #car::Anova(anc)
+cat("AIC GLR full:", extractAIC(anc))
 
 #Going for manual simplification (loop takes to much computational time)
 nf1 = update(formula, ~ . - Year:Item:Cluster:log(pest))
 anc1 = lm(nf1, data = fullscdata)
 #anova(anc, anc1)
 #car::Anova(anc1)
+#cat("AIC GLR1 :", extractAIC(anc1))
 
 nf2 = update(nf1, ~ . - Year:Cluster:log(pest))
 anc2 = lm(nf2, data = fullscdata)
 #anova(anc1, anc2)
 #car::Anova(anc2)
+#cat("AIC GLR2 :", extractAIC(anc2))
 
 nf3 = update(nf2, ~ . - Year:Item:log(pest))
 anc3 = lm(nf3, data = fullscdata)
 #anova(anc2, anc3)
 #car::Anova(anc3)
+#cat("AIC GLR3 :", extractAIC(anc3))
 
 nf4 = update(nf3, ~ . - Year:Item:Cluster)
 anc4 = lm(nf4, data = fullscdata)
 #anova(anc3, anc4)
 #car::Anova(anc4)
+#cat("AIC GLR4 :", extractAIC(anc4))
 
 nf5 = update(nf4, ~ . - Year:Cluster)
 anc5 = lm(nf5, data = fullscdata)
 #anova(anc4, anc5)
 #car::Anova(anc5)
+#cat("AIC GLR5 :", extractAIC(anc5))
 
 # Everything is significant for nf6
 nf6 = update(nf5, ~ . - Year:Item)
@@ -703,6 +711,7 @@ plot(anc6)
 
 cat("Test de Anderson-Darling ANC 6:", ad.test(residuals(anc6))$p.value)
 
+cat("AIC GLR6 :", extractAIC(anc6))
 
 # Trial without year (7) + removing the 3-interaction (8)
 
@@ -710,7 +719,9 @@ fwithoutyear = log(yield) ~ Item*Cluster*log(pest)
 anc7 = lm(fwithoutyear, data = fullscdata)
 #summary(anc7)
 #car::Anova(anc7)
- 
+
+#cat("AIC GLR7 :", extractAIC(anc7))
+
 nf8 = update(fwithoutyear, ~ . - Item:Cluster:log(pest))
 anc8 = lm(nf8, data = fullscdata)
 
@@ -720,6 +731,7 @@ par(mfrow = c(2,2))
 plot(anc8)
 
 cat("Test de Anderson-Darling ANC 8:", ad.test(residuals(anc8))$p.value)
+cat("AIC GLR8 :", extractAIC(anc8))
 
 
 # # Initialize the full model
@@ -773,7 +785,7 @@ ancov = lm(log_yield ~ log(pest) + Item + Cluster + Item*Cluster, data = full3cd
 car::Anova(ancov)
 # Some interactions are significant, there is no homogeneity in regression slopes
 # but we will ignore this - just remembering this hypothesis isn't respected
-
+# cat("AIC ANCOV :", extractAIC(ancov))
 
 # Residuals are not normal and variances are not homogenous...
 ad.test(augment(ancov)$.resid)
@@ -849,3 +861,13 @@ lp_clust = ggpubr::ggline(
 
 lp_item
 lp_clust
+
+
+
+
+#### iv. MANCOVA
+
+mancova(fullscnona, deps = c("Maize", "Potatoes", "Rice..paddy", "Sorghum", "Wheat"), 
+        factors = c("Cluster", "Year"), covs = c("rain", "avg_temp", "pest"),
+        boxM = T,
+        shapiro = T, qqPlot = T)
