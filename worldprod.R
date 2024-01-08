@@ -6,6 +6,7 @@ library(FactoMineR) #for PCA
 library(factoextra)
 library(GGally)
 library(cluster)
+library(knitr)
 library(MASS)
 library(broom)
 library(nortest) #for Anderson-Darling, allows to compute normality when above 5000 observations
@@ -375,6 +376,12 @@ sort(table(by_country$Year), decreasing = TRUE)
 with(data, table(Item, Year))
 with(data, table(Cluster, Item))
 
+with(fullscdata, table(Item, Year))
+with(fullscdata, table(Cluster, Item))
+
+# The following shows a COMPLETE experimental design
+with(fullscdata, table(Cluster, Item, Year))
+
 
 #by_country %>% group_by(Area) %>% summarise(Mean = mean(Maize), Sd = sd(Maize))
 
@@ -418,7 +425,7 @@ cluster_avg_yield = data %>%
 
 ggplot(cluster_avg_yield, aes(x = as.factor(Cluster), y = mean_yield, fill = as.factor(Cluster))) +
   geom_boxplot() +
-  labs(x = "Cluster", y = "Average Yield", title = "Average Yield Comparison for Different Clusters") +
+  labs(x = "Cluster", y = "Mean Yield", title = "Mean Yield Comparison for Different Clusters") +
   theme_minimal() 
 
 
@@ -437,7 +444,7 @@ summary_stats <- data %>%
 ggplot(summary_stats, aes(x = Year, y = mean_yield, color = Item, group = Item)) +
   #geom_ribbon(aes(ymin = mean_yield - sd_yield, ymax = mean_yield + sd_yield, fill = Item), alpha = 0.02) +
   geom_line((aes(y = mean_yield))) +
-  labs(y = 'Average Yield') +
+  labs(y = 'Mean Yield', title = "Yield Comparison for Different Crops over Time") +
   scale_color_brewer(palette = "Spectral") +
   theme_minimal() 
 
@@ -563,7 +570,7 @@ for (crop in crop_variables) {
     # Summary information
     summary_info = summary(regmod)
       
-    # Store models with the best and worst Multiple R-squared
+    # Store model
 
     models[[crop]]$models = c(models[[crop]]$models, list(list(N = N, ad = ad_stat, shap = shapiro,
                                                                model = regmod, summary = summary_info)))        
@@ -628,6 +635,9 @@ models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$shap
 
 cat("AIC SLR :", extractAIC(models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$model))
 
+car::ncvTest(models[[top_5_models[1, "crop"]]]$models[[top_5_models[1, "N"]]]$model)
+
+
 ################
 
 ## b) Comment expliquer les variations de rendement selon les variables disponibles ?
@@ -638,18 +648,32 @@ cat("AIC SLR :", extractAIC(models[[top_5_models[1, "crop"]]]$models[[top_5_mode
 mlr = lm(log(yield) ~ (rain) + log(temp) + log(pest), data = fullscdata)
 ad_mlr = ad.test(residuals(mlr))
 
-cat("Test de Anderson-Darling MLR :", ad_mlr$p.value)
+#cat("Test de Anderson-Darling MLR :", ad_mlr$p.value)
 
-par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
-plot(mlr)
+#par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
+#plot(mlr)
 
 summary(mlr)
+cat("AIC MLR. :", extractAIC(mlr))
 
 mlr_select = step(lm(log(yield)~1, data = fullscdata), scope = ~rain + log(temp) + log(pest),
                   direction = "both")
 summary(mlr_select)
+cat("Test de Anderson-Darling MLR AIC :", ad.test(residuals(mlr_select))$p.value)
 
-cat("AIC MLR. :", extractAIC(mlr))
+par(mfrow = c(2,2)) #partitionner la fenêtre graphique en matrice carrée de dimension 2
+plot(mlr_select)
+
+car::ncvTest(mlr_select)
+
+
+#### i bis. MANCOVA
+
+mancov = mancova(fullscnona, deps = c("Maize", "Potatoes", "Rice..paddy", "Sorghum", "Wheat"), 
+                 factors = c("Cluster", "Year"), covs = c("avg_temp", "pest", "rain"),
+                 boxM = T,
+                 shapiro = T, qqPlot = T)
+mancov
 
 #### ii. General linear regression with year, Item, Cluster and pest
 
@@ -712,6 +736,8 @@ plot(anc6)
 cat("Test de Anderson-Darling ANC 6:", ad.test(residuals(anc6))$p.value)
 
 cat("AIC GLR6 :", extractAIC(anc6))
+
+#car::ncvTest(anc6)
 
 # Trial without year (7) + removing the 3-interaction (8)
 
@@ -781,7 +807,7 @@ scatter_plot = ggplot(full3cdata, aes(x = log(pest), y = log_yield, color = Item
 scatter_plot
 
 # Test interactions
-ancov = lm(log_yield ~ log(pest) + Item + Cluster + Item*Cluster, data = full3cdata)
+ancov = lm(log_yield ~ log(pest) + Item*Cluster, data = full3cdata)
 car::Anova(ancov)
 # Some interactions are significant, there is no homogeneity in regression slopes
 # but we will ignore this - just remembering this hypothesis isn't respected
@@ -795,7 +821,7 @@ car::leveneTest(`.resid` ~ Item*Cluster, data = (augment(ancov)))
 par(mfrow = c(2,2))
 plot(ancov)
 
-
+cat("AIC ANCOV :", extractAIC(ancov))
 
 # Pairwise comparison test
 
@@ -805,6 +831,8 @@ full3cdata %>%
   group_by(Cluster) %>%
   rstatix::anova_test(log_yield ~ log(pest) + Item)
 
+
+
 pwc_item <- full3cdata %>% 
   group_by(Cluster) %>%
   rstatix::emmeans_test(
@@ -813,6 +841,7 @@ pwc_item <- full3cdata %>%
 
 pwc_item
 emmeans(ancov, pairwise ~ Item, adjust = "bonferroni")
+summary(ancov)
 
 
 # Looking for the cluster's effect
@@ -861,13 +890,3 @@ lp_clust = ggpubr::ggline(
 
 lp_item
 lp_clust
-
-
-
-
-#### iv. MANCOVA
-
-mancova(fullscnona, deps = c("Maize", "Potatoes", "Rice..paddy", "Sorghum", "Wheat"), 
-        factors = c("Cluster", "Year"), covs = c("rain", "avg_temp", "pest"),
-        boxM = T,
-        shapiro = T, qqPlot = T)
